@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 # Render 환경변수(Environment Variables)에 OPENAI_API_KEY를 등록해야 합니다.
 # OpenAI SDK 최신 버전 초기화 방식입니다.
-OPENAI_API_KEY = os.environ.get("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")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # 네이버 뉴스 크롤링 함수 (미래 모빌리티 키워드)
