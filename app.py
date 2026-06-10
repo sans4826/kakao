@@ -2,15 +2,14 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 app = Flask(__name__)
 
-# Render 환경변수(Environment Variables)에 GEMINI_API_KEY를 등록해야 합니다.
-# 2026년 기준 최신 google-genai SDK 초기화 방식입니다.
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+# Render 환경변수(Environment Variables)에 OPENAI_API_KEY를 등록해야 합니다.
+# OpenAI SDK 최신 버전 초기화 방식입니다.
+OPENAI_API_KEY = os.environ.get("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")
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # 네이버 뉴스 크롤링 함수 (미래 모빌리티 키워드)
 def get_mobility_trends():
@@ -48,8 +47,8 @@ def get_mobility_trends():
         print(f"크롤링 에러: {e}")
         return []
 
-# Gemini에게 질문하는 함수
-def ask_gemini(prompt):
+# GPT에게 질문하는 함수
+def ask_gpt(prompt):
     if not client:
         return "죄송합니다. AI 서비스 점검 중입니다. (API 키 미등록)"
         
@@ -57,23 +56,23 @@ def ask_gemini(prompt):
         # 카카오톡 가독성을 위해 글자 수 제한 및 모빌리티 전문가 페르소나 부여
         system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 150자 이내의 친절한 한글 문장으로 설명해 주세요."
         
-        response = client.models.generate_content(
-            model='gemini-2.5-flash', # 2026년 기준 빠르고 효율적인 기본 추천 모델
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=300,
-                temperature=0.5
-            )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", # 빠르고 효율적인 OpenAI 모델
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=300,
+            temperature=0.5
         )
-        return response.text.strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Gemini API 에러: {e}")
+        print(f"OpenAI API 에러: {e}")
         return "AI 답변을 생성하는 중에 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
 @app.route('/', methods=['GET'])
 def index():
-    return "Gemini 기반 미래 모빌리티 챗봇 서버 작동 중", 200
+    return "GPT 기반 미래 모빌리티 챗봇 서버 작동 중", 200
 
 @app.route('/api/mobility', methods=['POST'])
 def mobility_skill():
@@ -122,13 +121,13 @@ def mobility_skill():
             })
         return jsonify(response_body)
 
-    # 2. 그 외 모든 질문 -> Gemini API가 실시간 답변 생성
-    ai_answer = ask_gemini(user_utterance)
+    # 2. 그 외 모든 질문 -> GPT API가 실시간 답변 생성
+    ai_answer = ask_gpt(user_utterance)
     
-    # Gemini 답변을 담은 텍스트 카드와 웹 검색 버튼 추가
+    # GPT 답변을 담은 텍스트 카드와 웹 검색 버튼 추가
     text_card = {
         "thumbnailCard": {
-            "title": f"모빌리티 AI 답변",
+            "title": "모빌리티 AI 답변",
             "description": ai_answer,
             "thumbnail": {
                 "imageUrl": "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?q=80&w=600"
