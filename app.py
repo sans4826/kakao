@@ -84,3 +84,55 @@ def mobility_skill():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+
+
+# --- (기존 코드 유지) ---
+# @app.route('/api/mobility', ...) 끝나는 부분 아래에 추가하세요!
+
+@app.route('/api/recommend', methods=['POST'])
+def recommend_skill():
+    req = request.get_json()
+    user_utterance = req.get('userRequest', {}).get('utterance', '').strip()
+    
+    # 1. 라이프스타일 분석 및 추천용 맞춤 프롬프트 구성
+    gpt_prompt = f"사용자가 자신의 이동 스타일이나 취향을 다음과 같이 말했습니다: '{user_utterance}'\n이 라이프스타일을 분석해서 가장 잘 어울리는 미래 모빌리티(예: 1인용 PBV, UAM, 자율주행 캠핑카, e-VTOL 등)를 하나만 추천해주고, 그 이유를 카카오톡 메시지처럼 친절하고 흥미롭게 3~4문장으로 설명해줘."
+
+    # 2. GPT 답변 생성
+    ai_answer = ask_gpt(gpt_prompt)
+    
+    # 3. 카카오톡 응답 구조 (basicCard)
+    response_body = {
+        "version": "2.0",
+        "template": {
+            "outputs": [
+                {
+                    "basicCard": {
+                        "title": "🔮 내게 딱 맞는 미래 모빌리티는?",
+                        "description": ai_answer,
+                        "thumbnail": {
+                            # 미래지향적인 자동차/이동수단 느낌의 썸네일 이미지
+                            "imageUrl": "https://images.unsplash.com/photo-1519335345719-5d20b666a2cb?q=80&w=600" 
+                        },
+                        "buttons": [
+                            {
+                                "action": "share",
+                                "label": "추천 결과 공유하기"
+                            }
+                        ]
+                    }
+                }
+            ],
+            # 사용자가 쉽게 테스트해볼 수 있도록 예시 버튼 제공
+            "quickReplies": [
+                {"label": "왕복 2시간 출퇴근", "action": "message", "messageText": "매일 왕복 2시간 출퇴근해"},
+                {"label": "주말마다 캠핑", "action": "message", "messageText": "주말마다 차박 캠핑을 즐겨"},
+                {"label": "운전이 너무 싫어", "action": "message", "messageText": "운전하는 걸 너무 귀찮아해"}
+            ]
+        }
+    }
+    return jsonify(response_body)
+
+# --- 아래는 원래 있던 실행 코드 ---
+# if __name__ == '__main__':
+#     port = int(os.environ.get("PORT", 5000))
+#     app.run(host='0.0.0.0', port=port)
