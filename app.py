@@ -7,7 +7,6 @@ from openai import OpenAI
 app = Flask(__name__)
 
 # Render 환경변수(Environment Variables)에 OPENAI_API_KEY를 등록해야 합니다.
-# OpenAI SDK 최신 버전 초기화 방식입니다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
@@ -124,9 +123,9 @@ def mobility_skill():
     # 2. 그 외 모든 질문 -> GPT API가 실시간 답변 생성
     ai_answer = ask_gpt(user_utterance)
     
-    # GPT 답변을 담은 텍스트 카드와 웹 검색 버튼 추가
+    # GPT 답변을 담은 텍스트 카드와 웹 검색 버튼 추가 (basicCard로 수정됨)
     text_card = {
-        "thumbnailCard": {
+        "basicCard": {
             "title": "모빌리티 AI 답변",
             "description": ai_answer,
             "thumbnail": {
