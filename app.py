@@ -1,20 +1,18 @@
 import os
+import urllib.parse
 from flask import Flask, request, jsonify
 from openai import OpenAI
 
 app = Flask(__name__)
 
-# Render 환경변수(Environment Variables)에 OPENAI_API_KEY를 등록해야 합니다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-# GPT에게 질문하는 함수
 def ask_gpt(prompt):
     if not client:
         return "죄송합니다. AI 서비스 점검 중입니다. (API 키 미등록)"
         
     try:
-        # 카카오톡 가독성을 위해 글자 수 제한 및 모빌리티 전문가 페르소나 부여
         system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 친절한 한글 문장으로 설명해 주세요."
         
         response = client.chat.completions.create(
@@ -23,7 +21,7 @@ def ask_gpt(prompt):
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400, # 뉴스 요약을 위해 토큰 수를 살짝 늘렸습니다.
+            max_tokens=400,
             temperature=0.5
         )
         return response.choices[0].message.content.strip()
@@ -42,15 +40,17 @@ def mobility_skill():
     
     # 1. 키워드에 따라 GPT에게 보낼 프롬프트 조정
     gpt_prompt = user_utterance
-    
-    # 사용자가 '트렌드'나 '뉴스'를 물어보면 GPT에게 구체적인 지시를 내립니다.
     if '트렌드' in user_utterance or '뉴스' in user_utterance:
         gpt_prompt = "최신 미래 모빌리티(UAM, 자율주행, 전기차 등) 관련 주요 트렌드나 동향 3가지를 카카오톡 메시지처럼 보기 좋게 요약해서 알려줘."
 
     # 2. GPT 답변 생성
     ai_answer = ask_gpt(gpt_prompt)
     
-    # 3. 카카오톡 응답 구조 (basicCard)
+    # 3. 네이버 검색용 한글 URL 인코딩 (이 부분이 추가되었습니다!)
+    encoded_query = urllib.parse.quote(user_utterance)
+    search_url = f"https://search.naver.com/search.naver?query={encoded_query}"
+    
+    # 4. 카카오톡 응답 구조 생성
     response_body = {
         "version": "2.0",
         "template": {
@@ -66,7 +66,7 @@ def mobility_skill():
                             {
                                 "action": "webLink",
                                 "label": "네이버 검색 결과 보기",
-                                "webLinkUrl": f"https://search.naver.com/search.naver?query={user_utterance}"
+                                "webLinkUrl": search_url
                             }
                         ]
                     }
