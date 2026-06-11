@@ -1,6 +1,4 @@
 import os
-import requests
-from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
 from openai import OpenAI
 
@@ -10,42 +8,6 @@ app = Flask(__name__)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-# 네이버 뉴스 크롤링 함수 (미래 모빌리티 키워드)
-def get_mobility_trends():
-    try:
-        url = "https://search.naver.com/search.naver?where=news&query=미래+모빌리티+트렌드&sm=tab_opt&sort=1" # 최신순 정렬
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(url, headers=headers, timeout=3)
-        
-        if res.status_code != 200:
-            return []
-            
-        soup = BeautifulSoup(res.text, 'html.parser')
-        news_items = soup.select('.news_wrap')
-        
-        trends = []
-        for item in news_items[:3]: # 최신 뉴스 3개만 추출
-            title_el = item.select_one('.news_tit')
-            desc_el = item.select_one('.api_txt_lines.dsc_txt_wrap')
-            img_el = item.select_one('.thumb')
-            
-            if title_el:
-                title = title_el.text
-                link = title_el['href']
-                desc = desc_el.text[:50] + "..." if desc_el else "클릭하여 자세한 내용을 확인하세요."
-                img_url = img_el['src'] if img_el else "https://images.unsplash.com/photo-1517976487492-5750f3195933?q=80&w=150"
-                
-                trends.append({
-                    "title": title,
-                    "description": desc,
-                    "imageUrl": img_url,
-                    "link": link
-                })
-        return trends
-    except Exception as e:
-        print(f"크롤링 에러: {e}")
-        return []
-
 # GPT에게 질문하는 함수
 def ask_gpt(prompt):
     if not client:
@@ -53,15 +15,15 @@ def ask_gpt(prompt):
         
     try:
         # 카카오톡 가독성을 위해 글자 수 제한 및 모빌리티 전문가 페르소나 부여
-        system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 150자 이내의 친절한 한글 문장으로 설명해 주세요."
+        system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 친절한 한글 문장으로 설명해 주세요."
         
         response = client.chat.completions.create(
-            model="gpt-4o-mini", # 빠르고 효율적인 OpenAI 모델
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=300,
+            max_tokens=400, # 뉴스 요약을 위해 토큰 수를 살짝 늘렸습니다.
             temperature=0.5
         )
         return response.choices[0].message.content.strip()
@@ -78,11 +40,38 @@ def mobility_skill():
     req = request.get_json()
     user_utterance = req.get('userRequest', {}).get('utterance', '').strip()
     
-    # 기본 공통 응답 구조
+    # 1. 키워드에 따라 GPT에게 보낼 프롬프트 조정
+    gpt_prompt = user_utterance
+    
+    # 사용자가 '트렌드'나 '뉴스'를 물어보면 GPT에게 구체적인 지시를 내립니다.
+    if '트렌드' in user_utterance or '뉴스' in user_utterance:
+        gpt_prompt = "최신 미래 모빌리티(UAM, 자율주행, 전기차 등) 관련 주요 트렌드나 동향 3가지를 카카오톡 메시지처럼 보기 좋게 요약해서 알려줘."
+
+    # 2. GPT 답변 생성
+    ai_answer = ask_gpt(gpt_prompt)
+    
+    # 3. 카카오톡 응답 구조 (basicCard)
     response_body = {
         "version": "2.0",
         "template": {
-            "outputs": [],
+            "outputs": [
+                {
+                    "basicCard": {
+                        "title": "모빌리티 AI 답변",
+                        "description": ai_answer,
+                        "thumbnail": {
+                            "imageUrl": "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?q=80&w=600"
+                        },
+                        "buttons": [
+                            {
+                                "action": "webLink",
+                                "label": "네이버 검색 결과 보기",
+                                "webLinkUrl": f"https://search.naver.com/search.naver?query={user_utterance}"
+                            }
+                        ]
+                    }
+                }
+            ],
             "quickReplies": [
                 {"label": "UAM이 뭐야?", "action": "message", "messageText": "UAM이 뭐야?"},
                 {"label": "PBV에 대해 알려줘", "action": "message", "messageText": "PBV에 대해 알려줘"},
@@ -90,57 +79,6 @@ def mobility_skill():
             ]
         }
     }
-
-    # 1. 사용자가 '트렌드' 또는 '뉴스'를 요구했을 때 -> 크롤링 데이터 반환
-    if '트렌드' in user_utterance or '뉴스' in user_utterance:
-        trends = get_mobility_trends()
-        
-        if trends:
-            # 카카오톡 ListCard 구조 생성
-            list_card_items = []
-            for t in trends:
-                list_card_items.append({
-                    "title": t["title"],
-                    "description": t["description"],
-                    "imageUrl": t["imageUrl"],
-                    "link": {"web": t["link"]}
-                })
-                
-            list_card = {
-                "listCard": {
-                    "header": {"title": "실시간 미래 모빌리티 트렌드"},
-                    "items": list_card_items
-                }
-            }
-            response_body["template"]["outputs"].append(list_card)
-        else:
-            # 크롤링 실패 시 예외 처리
-            response_body["template"]["outputs"].append({
-                "simpleText": {"text": "현재 최신 뉴스를 가져올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-            })
-        return jsonify(response_body)
-
-    # 2. 그 외 모든 질문 -> GPT API가 실시간 답변 생성
-    ai_answer = ask_gpt(user_utterance)
-    
-    # GPT 답변을 담은 텍스트 카드와 웹 검색 버튼 추가 (basicCard로 수정됨)
-    text_card = {
-        "basicCard": {
-            "title": "모빌리티 AI 답변",
-            "description": ai_answer,
-            "thumbnail": {
-                "imageUrl": "https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?q=80&w=600"
-            },
-            "buttons": [
-                {
-                    "action": "webLink",
-                    "label": "네이버 검색 결과 보기",
-                    "webLinkUrl": f"https://search.naver.com/search.naver?query={user_utterance}"
-                }
-            ]
-        }
-    }
-    response_body["template"]["outputs"].append(text_card)
     return jsonify(response_body)
 
 if __name__ == '__main__':
