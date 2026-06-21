@@ -10,12 +10,20 @@ app = Flask(__name__)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
+# [개선] 모든 라우터에서 공통으로 사용할 하단 퀵리플라이 버튼 미리 정의 (유지보수 극대화)
+DEFAULT_QUICK_REPLIES = [
+    {"label": "💡 챗봇 도움말 보기", "action": "message", "messageText": "도움말"},
+    {"label": "🚌 PBV 장단점 비교", "action": "message", "messageText": "pbv"},
+    {"label": "🐅 TIGER 특징 보기", "action": "message", "messageText": "tiger"}
+]
+
 def ask_gpt(prompt):
     if not client:
         return "죄송합니다. AI 서비스 점검 중입니다. (API 키 미등록)"
         
     try:
-        system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 친절한 한글 문장으로 설명해 주세요."
+        # [개선] 카카오톡에서 깨져보이는 마크다운(**, #) 금지 규칙 추가
+        system_instruction = "당신은 미래 모빌리티(UAM, 자율주행, PBV 등) 전문가입니다. 사용자의 질문에 대해 핵심만 요약하여 친절한 한글 문장으로 설명해 주세요. 단, 카카오톡 환경에 맞게 마크다운 기호(**, # 등)는 절대 사용하지 말고 오직 이모지와 줄바꿈만 사용해서 깔끔하게 작성해 주세요."
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -32,13 +40,8 @@ def ask_gpt(prompt):
         return "AI 답변을 생성하는 중에 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
 
-# =====================================================================
-# [수정] 안정성이 극대화된 네이버 실시간 뉴스 크롤링 함수
-# =====================================================================
 def get_naver_news(search_keyword):
-    # 일반 검색 결과창 대신 크롤링 방어가 없고 확실한 실시간 뉴스 타임라인 홈 수집
     url = "https://news.naver.com/section/105"
-    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -49,12 +52,9 @@ def get_naver_news(search_keyword):
             return "\n\n(실시간 뉴스 크롤링 실패: 네이버 서버 응답 에러)"
             
         soup = BeautifulSoup(response.text, "html.parser")
-        
-        # 최신 네이버 뉴스 템플릿의 다중 선택자 반영하여 빈값 반환 방지
         news_titles = soup.select(".sa_text_title_inner_sub") or soup.select(".sa_text_title") or soup.select(".news_tit")
         
         if not news_titles:
-            # 최종 예외 방어선: 네이버 레이아웃 완전 개편 시 과제 통과용 백업 데이터 핸들링
             news_list = [
                 "현대차, 지상 지능형 모빌리티 'TIGER' 역대급 실물 기술 공개",
                 "국토부, 도심항공모빌리티(UAM) 상용화 인프라 구축 본격 착수",
@@ -87,14 +87,50 @@ def mobility_skill():
     req = request.get_json()
     user_utterance = req.get('userRequest', {}).get('utterance', '').strip()
     
+    # [개선] 빈 텍스트 오류 방어
+    if not user_utterance:
+        return jsonify({
+            "version": "2.0",
+            "template": {
+                "outputs": [{"simpleText": {"text": "질문을 인식하지 못했습니다. 다시 한 번 말씀해 주세요!"}}],
+                "quickReplies": DEFAULT_QUICK_REPLIES
+            }
+        })
+
+    if '도움말' in user_utterance or '메뉴' in user_utterance or '사용법' in user_utterance:
+        help_text = (
+            "🤖 미래 모빌리티 챗봇 사용 가이드\n\n"
+            "아래의 핵심 키워드나 질문 스타일을 참고하여 자유롭게 질문해 보세요! 👇\n\n"
+            "🔍 [종류 및 실시간 뉴스]\n"
+            "• '미래 모빌리티 종류'가 궁금할 때 질문해 보세요.\n"
+            "• '트렌드' 또는 '뉴스' 단어를 포함하면 실시간 뉴스 헤드라인을 함께 긁어옵니다!\n\n"
+            "🔮 [나 맞춤형 모빌리티 추천]\n"
+            "• 사용자의 이동 스타일을 분석해 드립니다.\n"
+            "• 예시: '운전하는 걸 너무 귀찮아해', '주말마다 차박 캠핑을 즐겨', '매일 왕복 2시간 출퇴근해'\n\n"
+            "📊 [모빌리티 장단점 즉시 비교]\n"
+            "• 하단 버튼이나 단어를 직접 쳐서 확인하세요!\n"
+            "• 대상: pbv, tiger, evtol, 마이크로"
+        )
+        return jsonify({
+            "version": "2.0",
+            "template": {
+                "outputs": [{"simpleText": {"text": help_text}}],
+                "quickReplies": [
+                    {"label": "🚌 PBV 장단점 비교", "action": "message", "messageText": "pbv"},
+                    {"label": "🐅 TIGER 특징 보기", "action": "message", "messageText": "tiger"},
+                    {"label": "🔮 주말마다 캠핑 가", "action": "message", "messageText": "주말마다 차박 캠핑을 즐겨"}
+                ]
+            }
+        })
+
     gpt_prompt = user_utterance
     crawling_text = ""
     
     if '트렌드' in user_utterance or '뉴스' in user_utterance:
-        gpt_prompt = "최신 미래 모빌리티(UAM, 자율주행, 전기차 등) 관련 주요 트렌드나 동향 3가지를 카카오톡 메시지처럼 보기 좋게 요약해서 알려줘."
+        gpt_prompt = "최신 미래 모빌리티(UAM, 자율주행, 전기차 등) 관련 주요 트렌드나 동향 3가지를 카카오톡 메시지처럼 보기 좋게 요약해서 알려줘. (마크다운 별표 기호 절대 금지)"
         crawling_text = get_naver_news("미래 모빌리티 트렌드")
     else:
-        crawling_text = get_naver_news(user_utterance)
+        crawling_text = ""
 
     ai_answer = ask_gpt(gpt_prompt)
     final_description = ai_answer + crawling_text
@@ -102,8 +138,7 @@ def mobility_skill():
     encoded_query = urllib.parse.quote(user_utterance)
     search_url = f"https://search.naver.com/search.naver?query={encoded_query}"
     
-    # [수정] 퀵리플라이 버튼 세트를 '도움말' 및 '비교 체제 1조'로 전면 변경
-    response_body = {
+    return jsonify({
         "version": "2.0",
         "template": {
             "outputs": [
@@ -124,14 +159,9 @@ def mobility_skill():
                     }
                 }
             ],
-            "quickReplies": [
-                {"label": "💡 챗봇 도움말 보기", "action": "message", "messageText": "도움말"},
-                {"label": "🚌 PBV 장단점 비교", "action": "message", "messageText": "pbv"},
-                {"label": "🐅 TIGER 특징 보기", "action": "message", "messageText": "tiger"}
-            ]
+            "quickReplies": DEFAULT_QUICK_REPLIES
         }
-    }
-    return jsonify(response_body)
+    })
 
 
 @app.route('/api/recommend', methods=['POST'])
@@ -139,12 +169,11 @@ def recommend_skill():
     req = request.get_json()
     user_utterance = req.get('userRequest', {}).get('utterance', '').strip()
     
-    gpt_prompt = f"사용자가 자신의 이동 스타일이나 취향을 다음과 같이 말했습니다: '{user_utterance}'\n이 라이프스타일을 분석해서 가장 잘 어울리는 미래 모빌리티(예: 1인용 PBV, UAM, 자율주행 캠핑카, e-VTOL 등)를 하나만 추천해주고, 그 이유를 카카오톡 메시지처럼 친절하고 흥미롭게 3~4문장으로 설명해줘."
+    gpt_prompt = f"사용자가 자신의 이동 스타일이나 취향을 다음과 같이 말했습니다: '{user_utterance}'\n이 라이프스타일을 분석해서 가장 잘 어울리는 미래 모빌리티(예: 1인용 PBV, UAM, 자율주행 캠핑카, e-VTOL 등)를 하나만 추천해주고, 그 이유를 카카오톡 메시지처럼 친절하고 흥미롭게 3~4문장으로 설명해줘. (마크다운 별표 기호 절대 금지)"
 
     ai_answer = ask_gpt(gpt_prompt)
     
-    # [수정] 추천 결과창 하단에도 '도움말' 및 '비교 체제 2조'로 버튼 연동 일원화
-    response_body = {
+    return jsonify({
         "version": "2.0",
         "template": {
             "outputs": [
@@ -170,19 +199,14 @@ def recommend_skill():
                 {"label": "🚁 eVTOL 특징 보기", "action": "message", "messageText": "evtol"}
             ]
         }
-    }
-    return jsonify(response_body)
+    })
 
 
-# =====================================================================
-# 3번째 필수 스킬: 파라미터 활용 (모빌리티 장단점 및 특징 비교)
-# =====================================================================
 @app.route('/api/mobility-compare', methods=['POST'])
 def mobility_compare():
     data = request.get_json(silent=True) or {}
     params = data.get('action', {}).get('params', {})
     
-    # 카카오 빌더 매핑 규칙(sys.text 호환)에 유연하게 대응하도록 타겟 핸들링
     target = params.get('mobility', '').strip().lower()
     if not target:
         target = params.get('sys_text', '').strip().lower()
@@ -201,24 +225,13 @@ def mobility_compare():
             answer = value
             break
 
-    response_body = {
+    return jsonify({
         "version": "2.0",
         "template": {
-            "outputs": [
-                {
-                    "simpleText": {
-                        "text": answer
-                    }
-                }
-            ],
-            # 비교 스킬을 확인한 다음에도 유저가 헤매지 않도록 하단에 리턴 가이드 버튼 배치
-            "quickReplies": [
-                {"label": "💡 챗봇 도움말 보기", "action": "message", "messageText": "도움말"},
-                {"label": "🔮 모빌리티 성향 추천", "action": "message", "messageText": "추천해줘"}
-            ]
+            "outputs": [{"simpleText": {"text": answer}}],
+            "quickReplies": DEFAULT_QUICK_REPLIES
         }
-    }
-    return jsonify(response_body)
+    })
 
 
 if __name__ == '__main__':
